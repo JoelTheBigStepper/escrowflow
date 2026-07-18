@@ -53,11 +53,11 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
         </div>
       )}
 
-      {!isLoading && initialized && title && description && deadline !== undefined && agreementType !== undefined && (
+      {!isLoading && initialized && title !== undefined && description !== undefined && deadline !== undefined && agreementType !== undefined && (
         agreementType === AgreementType.Group ? (
           <GroupDashboard address={address} title={title} description={description} deadline={deadline} />
         ) : (
-          <EscrowDashboard address={address} title={title} deadline={deadline} />
+          <EscrowDashboard address={address} title={title} description={description} deadline={deadline} />
         )
       )}
     </div>

@@ -1,14 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { parseEther } from "viem";
+import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import { formatEther, parseEther } from "viem";
 import { Lock, Unlock, Copy, Check, ExternalLink, Loader2, ShieldCheck, Clock } from "lucide-react";
-import { AGREEMENT_ABI } from "@/lib/contracts";
+import { AGREEMENT_ABI, EscrowStatus } from "@/lib/contracts";
 import { explorerAddressUrl, formatMon, shortAddress, timeUntil, formatDeadline } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 
-export function EscrowDashboard({ address, title, deadline }: { address: `0x${string}`; title: string; deadline: bigint }) {
+export function EscrowDashboard({
+  address,
+  title,
+  description,
+  deadline,
+}: {
+  address: `0x${string}`;
+  title: string;
+  description: string;
+  deadline: bigint;
+}) {
   const { address: me } = useAccount();
   const { push, update } = useToast();
   const [copied, setCopied] = useState(false);
@@ -16,45 +26,47 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
   const { data, refetch } = useReadContracts({
     contracts: [
       { address, abi: AGREEMENT_ABI, functionName: "payer" },
-      { address, abi: AGREEMENT_ABI, functionName: "provider" },
+      { address, abi: AGREEMENT_ABI, functionName: "recipient" },
       { address, abi: AGREEMENT_ABI, functionName: "lockedAmount" },
+      { address, abi: AGREEMENT_ABI, functionName: "targetAmount" },
       { address, abi: AGREEMENT_ABI, functionName: "released" },
-      { address, abi: AGREEMENT_ABI, functionName: "escrowDescription" },
-      { address, abi: AGREEMENT_ABI, functionName: "isClaimable" },
+      { address, abi: AGREEMENT_ABI, functionName: "escrowStatus" },
     ],
   });
 
-  const [payer, provider, lockedAmount, released, escrowDescription, isClaimable] = [
+  const [payer, recipient, lockedAmount, targetAmount, released, status] = [
     data?.[0]?.result as `0x${string}` | undefined,
     data?.[1]?.result as `0x${string}` | undefined,
     data?.[2]?.result as bigint | undefined,
-    data?.[3]?.result as boolean | undefined,
-    data?.[4]?.result as string | undefined,
-    data?.[5]?.result as boolean | undefined,
+    data?.[3]?.result as bigint | undefined,
+    data?.[4]?.result as boolean | undefined,
+    data?.[5]?.result as EscrowStatus | undefined,
   ];
 
   const isPayer = me && payer && me.toLowerCase() === payer.toLowerCase();
-  const isProvider = me && provider && me.toLowerCase() === provider.toLowerCase();
-  const deadlinePassed = Number(deadline) * 1000 < Date.now();
+  const isRecipient = me && recipient && me.toLowerCase() === recipient.toLowerCase();
+  const isClaimable = status === EscrowStatus.Expired && (lockedAmount ?? 0n) > 0n;
 
-  // --- Lock funds ---
+  // --- Deposit funds ---
   const [lockAmount, setLockAmount] = useState("");
-  const [lockDesc, setLockDesc] = useState("");
+  useEffect(() => {
+    if (targetAmount && targetAmount > 0n && !lockAmount) setLockAmount(formatEther(targetAmount));
+  }, [targetAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { writeContract: writeLock, data: lockHash, isPending: lockPending, error: lockError, reset: resetLock } = useWriteContract();
   const { data: lockReceipt, isLoading: lockConfirming } = useWaitForTransactionReceipt({ hash: lockHash });
   const [lockToastId, setLockToastId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!lockError) return;
-    const msg = lockError.message.includes("User rejected") ? "Transaction rejected" : "Failed to lock funds";
+    const msg = lockError.message.includes("User rejected") ? "Transaction rejected" : "Failed to deposit funds";
     if (lockToastId) update(lockToastId, "error", msg);
   }, [lockError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!lockReceipt) return;
-    if (lockToastId) update(lockToastId, "success", "Funds locked", lockReceipt.transactionHash);
+    if (lockToastId) update(lockToastId, "success", "Funds deposited", lockReceipt.transactionHash);
     setLockAmount("");
-    setLockDesc("");
     refetch();
     resetLock();
   }, [lockReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -62,14 +74,14 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
   function handleLock() {
     const parsed = Number(lockAmount);
     if (!parsed || parsed <= 0) {
-      push("error", "Enter an amount to lock");
+      push("error", "Enter an amount to deposit");
       return;
     }
     const id = push("pending", "Confirm in wallet...");
     setLockToastId(id);
     writeLock(
-      { address, abi: AGREEMENT_ABI, functionName: "lockFunds", args: [lockDesc.trim()], value: parseEther(lockAmount) },
-      { onSuccess: () => update(id, "pending", "Locking funds...") }
+      { address, abi: AGREEMENT_ABI, functionName: "lockFunds", args: [], value: parseEther(lockAmount) },
+      { onSuccess: () => update(id, "pending", "Depositing funds...") }
     );
   }
 
@@ -86,7 +98,7 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
 
   useEffect(() => {
     if (!actionReceipt) return;
-    if (actionToastId) update(actionToastId, "success", "Funds released to provider", actionReceipt.transactionHash);
+    if (actionToastId) update(actionToastId, "success", "Funds released to recipient", actionReceipt.transactionHash);
     refetch();
     resetAction();
   }, [actionReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -120,7 +132,7 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
             <div className="mb-1 flex items-center gap-2 text-xs font-medium text-[var(--color-warn)]">
               <Lock className="h-3.5 w-3.5" /> Service Escrow
             </div>
-            <h2 className="text-xl font-semibold text-zinc-50 sm:text-2xl">{title}</h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">{title}</h2>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={copyAddress} className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200">
@@ -132,9 +144,10 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
             </a>
           </div>
         </div>
+        {description && <p className="mt-2 text-sm text-zinc-400">{description}</p>}
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-4">
           <span>Payer: <span className="font-mono-num text-zinc-400">{shortAddress(payer)}</span> {isPayer && "(you)"}</span>
-          <span>Provider: <span className="font-mono-num text-zinc-400">{shortAddress(provider)}</span> {isProvider && "(you)"}</span>
+          <span>Recipient: <span className="font-mono-num text-zinc-400">{shortAddress(recipient)}</span> {isRecipient && "(you)"}</span>
           <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {timeUntil(deadline)}</span>
           <span>{formatDeadline(deadline)}</span>
         </div>
@@ -145,30 +158,31 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
         <div className="flex items-center justify-between">
           <div>
             <p className="mb-1 text-xs font-medium text-zinc-500">Locked amount</p>
-            <p className="font-mono-num text-3xl font-semibold text-zinc-50">{formatMon(lockedAmount)} MON</p>
+            <p className="font-mono-num text-3xl font-semibold text-white">{formatMon(lockedAmount)} MON</p>
+            {targetAmount !== undefined && targetAmount > 0n && (lockedAmount ?? 0n) < targetAmount && (
+              <p className="mt-1 text-xs text-zinc-500">Target: {formatMon(targetAmount)} MON</p>
+            )}
           </div>
-          <StatusBadge released={!!released} deadlinePassed={deadlinePassed} claimable={!!isClaimable} />
+          <StatusBadge status={status} />
         </div>
-        {escrowDescription && <p className="mt-3 text-sm text-zinc-400">"{escrowDescription}"</p>}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* Lock funds — payer only, before release */}
+        {/* Deposit funds — payer only, before release */}
         {isPayer && !released && (
           <div className="card p-5 sm:p-6">
             <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
-              <Lock className="h-4 w-4 text-[var(--color-warn)]" /> Lock funds
+              <Lock className="h-4 w-4 text-[var(--color-warn)]" /> Deposit funds
             </p>
             <div className="space-y-3">
               <input value={lockAmount} onChange={(e) => setLockAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="Amount (MON)" className="input" />
-              <input value={lockDesc} onChange={(e) => setLockDesc(e.target.value)} placeholder="Description (optional)" maxLength={100} className="input" />
               <button
                 onClick={handleLock}
                 disabled={busy}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-zinc-950 transition hover:brightness-95 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-[#0e091c] transition hover:brightness-95 disabled:opacity-50"
               >
                 {lockPending || lockConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                Lock into escrow
+                Deposit funds
               </button>
             </div>
           </div>
@@ -178,22 +192,22 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
         {isPayer && !released && (lockedAmount ?? 0n) > 0n && (
           <div className="card p-5 sm:p-6">
             <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
-              <ShieldCheck className="h-4 w-4 text-[var(--color-accent)]" /> Release to provider
+              <ShieldCheck className="h-4 w-4 text-[var(--color-accent)]" /> Release funds
             </p>
             <p className="mb-4 text-sm text-zinc-500">Satisfied with the work? Release the locked funds now — no need to wait for the deadline.</p>
             <button
               onClick={handleRelease}
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-[var(--color-accent-dim)] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--color-accent-dim)] disabled:opacity-50"
             >
               {actionPending || actionConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
-              Release funds
+              Release Funds
             </button>
           </div>
         )}
 
-        {/* Claim — provider only, after deadline */}
-        {isProvider && !released && (
+        {/* Claim — recipient only, after deadline */}
+        {isRecipient && !released && (
           <div className="card p-5 sm:p-6">
             <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
               <Unlock className="h-4 w-4 text-[var(--color-warn)]" /> Claim funds
@@ -204,15 +218,15 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
                 <button
                   onClick={handleClaim}
                   disabled={busy}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-zinc-950 transition hover:brightness-95 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-[#0e091c] transition hover:brightness-95 disabled:opacity-50"
                 >
                   {actionPending || actionConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlock className="h-4 w-4" />}
-                  Claim funds
+                  Claim Funds
                 </button>
               </>
             ) : (
               <p className="text-sm text-zinc-500">
-                {(lockedAmount ?? 0n) > 0n ? `Claimable once the deadline passes: ${timeUntil(deadline)}.` : "Waiting for the payer to lock funds."}
+                {(lockedAmount ?? 0n) > 0n ? `Claimable once the deadline passes: ${timeUntil(deadline)}.` : "Waiting for the payer to deposit funds."}
               </p>
             )}
           </div>
@@ -221,7 +235,7 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
         {released && (
           <div className="card p-5 sm:p-6 lg:col-span-2">
             <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-accent)]">
-              <ShieldCheck className="h-4 w-4" /> Funds have been released to the provider.
+              <ShieldCheck className="h-4 w-4" /> Funds have been released to the recipient.
             </p>
           </div>
         )}
@@ -230,15 +244,15 @@ export function EscrowDashboard({ address, title, deadline }: { address: `0x${st
   );
 }
 
-function StatusBadge({ released, deadlinePassed, claimable }: { released: boolean; deadlinePassed: boolean; claimable: boolean }) {
-  if (released) {
-    return <span className="rounded-full bg-[var(--color-accent)]/15 px-3 py-1 text-xs font-medium text-[var(--color-accent)]">Released</span>;
+function StatusBadge({ status }: { status: EscrowStatus | undefined }) {
+  switch (status) {
+    case EscrowStatus.Released:
+      return <span className="rounded-full bg-[var(--color-accent)]/15 px-3 py-1 text-xs font-medium text-[var(--color-accent)]">Released</span>;
+    case EscrowStatus.Expired:
+      return <span className="rounded-full bg-[var(--color-warn)]/15 px-3 py-1 text-xs font-medium text-[var(--color-warn)]">Expired — claimable</span>;
+    case EscrowStatus.Locked:
+      return <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300">Funds Locked</span>;
+    default:
+      return <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-400">Awaiting deposit</span>;
   }
-  if (claimable) {
-    return <span className="rounded-full bg-[var(--color-warn)]/15 px-3 py-1 text-xs font-medium text-[var(--color-warn)]">Claimable</span>;
-  }
-  if (deadlinePassed) {
-    return <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-400">Deadline passed</span>;
-  }
-  return <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-400">Active</span>;
 }
