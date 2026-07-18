@@ -14,10 +14,18 @@ export enum AgreementType {
   Escrow = 1,
 }
 
+export enum EscrowStatus {
+  AwaitingDeposit = 0,
+  Locked = 1,
+  Released = 2,
+  Expired = 3,
+}
+
 export type Expense = {
   payer: `0x${string}`;
   amount: bigint;
   description: string;
+  splitAmong: `0x${string}`[];
   timestamp: bigint;
 };
 

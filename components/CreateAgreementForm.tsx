@@ -2,21 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { decodeEventLog } from "viem";
-import { Users, Lock, Plus, X, Loader2, Rocket } from "lucide-react";
+import { decodeEventLog, parseEther } from "viem";
+import { Users, Lock, Loader2, Rocket } from "lucide-react";
 import { AGREEMENT_ABI, AgreementType, FACTORY_ABI, FACTORY_ADDRESS } from "@/lib/contracts";
 import { isValidAddress } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 
 export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${string}`) => void }) {
-  const { address, isConnected } = useAccount();
+  const { isConnected } = useAccount();
   const { push, update } = useToast();
 
   const [type, setType] = useState<AgreementType>(AgreementType.Group);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [deadlineDays, setDeadlineDays] = useState("7");
-  const [participants, setParticipants] = useState<string[]>([""]);
-  const [provider, setProvider] = useState("");
+  const [initialDeposit, setInitialDeposit] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [targetAmount, setTargetAmount] = useState("");
   const [toastId, setToastId] = useState<number | null>(null);
 
   const { writeContract, data: hash, isPending, error, reset } = useWriteContract();
@@ -43,26 +45,27 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
         // not the event we're looking for, skip
       }
     }
-    if (toastId) update(toastId, "success", "Agreement created!", receipt.transactionHash);
+    if (toastId) {
+      update(
+        toastId,
+        "success",
+        type === AgreementType.Group ? "Pot created! Taking you there..." : "Escrow created — deposit funds to get started.",
+        receipt.transactionHash
+      );
+    }
     if (created) onCreated(created);
     reset();
   }, [receipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const validParticipants = participants.map((p) => p.trim()).filter((p) => p.length > 0);
-  const badParticipant = validParticipants.find((p) => !isValidAddress(p));
-
+  const isGroup = type === AgreementType.Group;
   const canSubmit =
     isConnected &&
     title.trim().length > 0 &&
     Number(deadlineDays) > 0 &&
-    (type === AgreementType.Group ? true : isValidAddress(provider.trim()));
+    (isGroup ? true : isValidAddress(recipient.trim()) && Number(targetAmount) > 0 && description.trim().length > 0);
 
   function handleSubmit() {
     if (!canSubmit) return;
-    if (type === AgreementType.Group && badParticipant) {
-      push("error", `Invalid address: ${badParticipant}`);
-      return;
-    }
     if (FACTORY_ADDRESS === "0x0000000000000000000000000000000000000000") {
       push("error", "Factory not deployed yet — set NEXT_PUBLIC_FACTORY_ADDRESS");
       return;
@@ -70,6 +73,8 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
 
     const id = push("pending", "Confirm in wallet...");
     setToastId(id);
+
+    const deposit = isGroup && Number(initialDeposit) > 0 ? parseEther(initialDeposit) : 0n;
 
     writeContract(
       {
@@ -79,10 +84,13 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
         args: [
           type,
           title.trim(),
+          description.trim(),
           BigInt(deadlineDays),
-          (type === AgreementType.Group ? validParticipants : []) as `0x${string}`[],
-          (type === AgreementType.Escrow ? provider.trim() : "0x0000000000000000000000000000000000000000") as `0x${string}`,
+          [] as `0x${string}`[], // participants are added after creation, from inside the pot
+          (isGroup ? "0x0000000000000000000000000000000000000000" : recipient.trim()) as `0x${string}`,
+          isGroup ? 0n : parseEther(targetAmount || "0"),
         ],
+        value: deposit,
       },
       {
         onSuccess: () => update(id, "pending", "Deploying agreement..."),
@@ -93,12 +101,12 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
   const busy = isPending || isConfirming;
 
   return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 sm:p-6">
+    <div className="card p-5 sm:p-6">
       <div className="mb-5 grid grid-cols-2 gap-2">
         <TypeButton
           active={type === AgreementType.Group}
           icon={<Users className="h-4 w-4" />}
-          label="Group Splitter"
+          label="Group Pot"
           onClick={() => setType(AgreementType.Group)}
         />
         <TypeButton
@@ -114,13 +122,23 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder={type === AgreementType.Group ? "Lagos trip, June" : "Landing page redesign"}
+            placeholder={isGroup ? "Lagos trip, June" : "Landing page redesign"}
             maxLength={80}
             className="input"
           />
         </Field>
 
-        <Field label={type === AgreementType.Group ? "Deadline (informational, days)" : "Auto-release deadline (days)"}>
+        <Field label={isGroup ? "Description (optional)" : "Service description"}>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder={isGroup ? "What's this pot for?" : "What's being delivered?"}
+            maxLength={200}
+            className="input"
+          />
+        </Field>
+
+        <Field label="Deadline (days)">
           <input
             value={deadlineDays}
             onChange={(e) => setDeadlineDays(e.target.value.replace(/[^0-9]/g, ""))}
@@ -129,54 +147,46 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
           />
         </Field>
 
-        {type === AgreementType.Group ? (
-          <Field label="Participants (wallet addresses, you're added automatically)">
-            <div className="space-y-2">
-              {participants.map((p, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input
-                    value={p}
-                    onChange={(e) => {
-                      const next = [...participants];
-                      next[i] = e.target.value;
-                      setParticipants(next);
-                    }}
-                    placeholder="0x..."
-                    className="input font-mono-num text-xs"
-                  />
-                  {participants.length > 1 && (
-                    <button
-                      onClick={() => setParticipants(participants.filter((_, idx) => idx !== i))}
-                      className="shrink-0 rounded-lg border border-[var(--color-border)] p-2 text-zinc-500 hover:text-[var(--color-danger)]"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              ))}
-              <button
-                onClick={() => setParticipants([...participants, ""])}
-                className="flex items-center gap-1.5 text-sm text-[var(--color-accent)] hover:underline"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add participant
-              </button>
-            </div>
+        {isGroup ? (
+          <Field label="Initial deposit (optional, MON)">
+            <input
+              value={initialDeposit}
+              onChange={(e) => setInitialDeposit(e.target.value.replace(/[^0-9.]/g, ""))}
+              placeholder="0.0"
+              className="input"
+            />
+            <p className="mt-1.5 text-xs text-zinc-600">
+              Logged as an expense you paid, split across whoever's in the pot when others join.
+            </p>
           </Field>
         ) : (
-          <Field label="Service provider address (who gets paid)">
-            <input
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              placeholder="0x..."
-              className="input font-mono-num text-xs"
-            />
-          </Field>
+          <>
+            <Field label="Recipient address (who gets paid)">
+              <input
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder="0x..."
+                className="input font-mono-num text-xs"
+              />
+            </Field>
+            <Field label="Amount to lock (MON)">
+              <input
+                value={targetAmount}
+                onChange={(e) => setTargetAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="0.0"
+                className="input"
+              />
+              <p className="mt-1.5 text-xs text-zinc-600">
+                This just sets the suggested deposit amount — you'll deposit it as a separate step next.
+              </p>
+            </Field>
+          </>
         )}
 
         <button
           onClick={handleSubmit}
           disabled={!canSubmit || busy}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-3 text-sm font-semibold text-zinc-950 transition hover:bg-[var(--color-accent-dim)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-3 text-sm font-semibold text-white transition hover:bg-[var(--color-accent-dim)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? (
             <>
@@ -184,7 +194,7 @@ export function CreateAgreementForm({ onCreated }: { onCreated: (address: `0x${s
             </>
           ) : (
             <>
-              <Rocket className="h-4 w-4" /> Create agreement
+              <Rocket className="h-4 w-4" /> {isGroup ? "Create New Group Pot" : "Create New Escrow"}
             </>
           )}
         </button>

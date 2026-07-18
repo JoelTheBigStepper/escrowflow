@@ -20,38 +20,52 @@ contract EscrowFlowFactory {
 
     /// @param _type 0 = Group, 1 = Escrow
     /// @param _title Human readable name for the agreement
-    /// @param _deadlineDays Days from now until the deadline (auto-release
-    ///        for Escrow, informational for Group)
-    /// @param _participants Initial participant list (Group mode only, can
-    ///        be empty and grown by inviting later off-chain / re-sharing
-    ///        the address)
-    /// @param _provider Service provider address (Escrow mode only, ignored
-    ///        for Group)
+    /// @param _description Group pot description, or escrow service description
+    /// @param _deadlineDays Days from now until the deadline
+    /// @param _participants Initial participant list (Group mode only — the
+    ///        creator is always added automatically, more can be invited later)
+    /// @param _recipient Who gets paid (Escrow mode only, ignored for Group)
+    /// @param _targetAmount Amount the payer intends to lock (Escrow mode
+    ///        only, informational — deposits are still flexible)
+    ///
+    /// For Group mode, send MON with this call to record an "Initial deposit"
+    /// expense immediately, split across the starting participants.
     function createAgreement(
         Agreement.AgreementType _type,
         string calldata _title,
+        string calldata _description,
         uint256 _deadlineDays,
         address[] calldata _participants,
-        address _provider
-    ) external returns (address agreementAddress) {
+        address _recipient,
+        uint256 _targetAmount
+    ) external payable returns (address agreementAddress) {
         require(bytes(_title).length > 0, "Title required");
         require(_deadlineDays > 0 && _deadlineDays <= 3650, "Invalid deadline");
 
         if (_type == Agreement.AgreementType.Escrow) {
-            require(_provider != address(0) && _provider != msg.sender, "Invalid provider");
+            require(_recipient != address(0) && _recipient != msg.sender, "Invalid recipient");
         }
 
         Agreement instance = new Agreement();
         address deployed = address(instance);
         uint256 deadline = block.timestamp + (_deadlineDays * 1 days);
 
-        instance.initialize(_type, _title, msg.sender, deadline, _participants, _provider);
+        instance.initialize{value: msg.value}(
+            _type,
+            _title,
+            _description,
+            msg.sender,
+            deadline,
+            _participants,
+            _recipient,
+            _targetAmount
+        );
 
         allAgreements.push(deployed);
         _userAgreements[msg.sender].push(deployed);
 
         if (_type == Agreement.AgreementType.Escrow) {
-            _userAgreements[_provider].push(deployed);
+            _userAgreements[_recipient].push(deployed);
         } else {
             for (uint256 i = 0; i < _participants.length; i++) {
                 if (_participants[i] != msg.sender) {

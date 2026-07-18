@@ -18,7 +18,7 @@ export function ConnectButton() {
       <button
         onClick={() => connect({ connector: connectors[0] })}
         disabled={isPending}
-        className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-[var(--color-accent-dim)] disabled:opacity-60"
+        className="flex items-center gap-2 rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-accent-dim)] disabled:opacity-60"
       >
         <Wallet className="h-4 w-4" />
         {isPending ? "Connecting..." : "Connect Wallet"}
