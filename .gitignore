@@ -1,0 +1,6 @@
+node_modules
+.next
+.env
+scripts/artifacts.json
+*.log
+.DS_Store

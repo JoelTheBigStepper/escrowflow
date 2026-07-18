@@ -1,0 +1,155 @@
+@import "tailwindcss";
+
+/* If you have licensed Britti Sans font files, drop them in /public/fonts
+   and uncomment this block. Until then, headings fall back to Inter. */
+/*
+@font-face {
+  font-family: "Britti Sans";
+  src: url("/fonts/BrittiSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Britti Sans";
+  src: url("/fonts/BrittiSans-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Britti Sans";
+  src: url("/fonts/BrittiSans-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+*/
+
+@theme {
+  --font-heading: "Britti Sans", var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-roboto-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --color-bg: #0e091c;
+  --color-surface: #170f2b;
+  --color-surface-2: #1f1638;
+  --color-border: #2e2350;
+  --color-accent: #6e54ff;
+  --color-accent-dim: #5a41f0;
+  --color-accent-light: #ddd7fe;
+  --color-warn: #f5a623;
+  --color-danger: #f2596b;
+  --color-text: #ffffff;
+  --color-text-dim: #ddd7fe;
+  --color-text-faint: #8b7fc4;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(110, 84, 255, 0.16), transparent);
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  letter-spacing: -0.01em;
+}
+
+button,
+label,
+a,
+code,
+.font-mono-num {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background-color: rgba(110, 84, 255, 0.35);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-mono-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Thin animated flow line — signature motif tying the two modes together */
+@keyframes flow {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 200% 0%;
+  }
+}
+
+.flow-line {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent) 25%,
+    var(--color-accent-light) 50%,
+    var(--color-accent) 75%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: flow 6s linear infinite;
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-line {
+    animation: none;
+  }
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 999px;
+}
+
+.input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-2);
+  padding: 0.65rem 0.85rem;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+.card {
+  border-radius: 1rem;
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
