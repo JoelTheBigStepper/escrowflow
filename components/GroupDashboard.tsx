@@ -3,51 +3,153 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { parseEther } from "viem";
-import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2 } from "lucide-react";
-import { AGREEMENT_ABI } from "@/lib/contracts";
-import { explorerAddressUrl, formatMon, shortAddress, timeUntil } from "@/lib/utils";
+import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2, UserPlus } from "lucide-react";
+import { AGREEMENT_ABI, Expense } from "@/lib/contracts";
+import { explorerAddressUrl, formatMon, isValidAddress, shortAddress, timeUntil } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import { HistoryLog } from "@/components/HistoryLog";
 
-export function GroupDashboard({ address, title, deadline }: { address: `0x${string}`; title: string; deadline: bigint }) {
+export function GroupDashboard({
+  address,
+  title,
+  description,
+  deadline,
+}: {
+  address: `0x${string}`;
+  title: string;
+  description: string;
+  deadline: bigint;
+}) {
   const { address: me } = useAccount();
   const { push, update } = useToast();
   const [copied, setCopied] = useState(false);
 
-  const { data: participants, refetch: refetchParticipants } = useReadContract({
+  const { data: participantsData, refetch: refetchParticipants } = useReadContract({
     address,
     abi: AGREEMENT_ABI,
     functionName: "getParticipants",
   });
-
-  const list = (participants as `0x${string}`[] | undefined) ?? [];
+  const participants = (participantsData as `0x${string}`[] | undefined) ?? [];
 
   const { data: balanceResults, refetch: refetchBalances } = useReadContracts({
-    contracts: list.map((p) => ({
+    contracts: participants.map((p) => ({
       address,
       abi: AGREEMENT_ABI,
       functionName: "getBalance",
       args: [p],
     })) as any,
-    query: { enabled: list.length > 0 },
+    query: { enabled: participants.length > 0 },
   });
 
   const balances = useMemo(() => {
     const map = new Map<string, bigint>();
-    list.forEach((p, i) => {
+    participants.forEach((p, i) => {
       const result = balanceResults?.[i]?.result as bigint | undefined;
       map.set(p.toLowerCase(), result ?? 0n);
     });
     return map;
-  }, [list, balanceResults]);
+  }, [participants, balanceResults]);
+
+  const { data: expensesData, refetch: refetchExpenses } = useReadContract({
+    address,
+    abi: AGREEMENT_ABI,
+    functionName: "getExpenses",
+  });
+  const expenses = (expensesData as Expense[] | undefined) ?? [];
+
+  const { paidMap, owedMap } = useMemo(() => {
+    const paid = new Map<string, bigint>();
+    const owed = new Map<string, bigint>();
+    for (const e of expenses) {
+      paid.set(e.payer.toLowerCase(), (paid.get(e.payer.toLowerCase()) ?? 0n) + e.amount);
+      const share = e.amount / BigInt(e.splitAmong.length || 1);
+      for (const p of e.splitAmong) {
+        owed.set(p.toLowerCase(), (owed.get(p.toLowerCase()) ?? 0n) + share);
+      }
+    }
+    return { paidMap: paid, owedMap: owed };
+  }, [expenses]);
 
   const myBalance = me ? balances.get(me.toLowerCase()) ?? 0n : 0n;
-  const owedByOthers = list.filter((p) => (balances.get(p.toLowerCase()) ?? 0n) > 0n && p.toLowerCase() !== me?.toLowerCase());
+
+  function refetchAll() {
+    refetchParticipants();
+    refetchBalances();
+    refetchExpenses();
+  }
+
+  // --- Add participant ---
+  const [newParticipant, setNewParticipant] = useState("");
+  const {
+    writeContract: writeAddParticipant,
+    data: addParticipantHash,
+    isPending: addParticipantPending,
+    error: addParticipantError,
+    reset: resetAddParticipant,
+  } = useWriteContract();
+  const { data: addParticipantReceipt, isLoading: addParticipantConfirming } = useWaitForTransactionReceipt({ hash: addParticipantHash });
+  const [addParticipantToastId, setAddParticipantToastId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!addParticipantError) return;
+    const msg = addParticipantError.message.includes("User rejected") ? "Transaction rejected" : "Failed to add participant";
+    if (addParticipantToastId) update(addParticipantToastId, "error", msg);
+  }, [addParticipantError]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!addParticipantReceipt) return;
+    if (addParticipantToastId) update(addParticipantToastId, "success", "Participant added", addParticipantReceipt.transactionHash);
+    setNewParticipant("");
+    refetchParticipants();
+    resetAddParticipant();
+  }, [addParticipantReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleAddParticipant() {
+    const trimmed = newParticipant.trim();
+    if (!isValidAddress(trimmed)) {
+      push("error", "Enter a valid wallet address");
+      return;
+    }
+    const id = push("pending", "Confirm in wallet...");
+    setAddParticipantToastId(id);
+    writeAddParticipant(
+      { address, abi: AGREEMENT_ABI, functionName: "addParticipant", args: [trimmed as `0x${string}`] },
+      { onSuccess: () => update(id, "pending", "Adding participant...") }
+    );
+  }
 
   // --- Add expense ---
   const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
-  const { writeContract: writeExpense, data: expenseHash, isPending: expensePending, error: expenseError, reset: resetExpense } = useWriteContract();
+  const [expenseDesc, setExpenseDesc] = useState("");
+  const [payer, setPayer] = useState<string>("");
+  const [splitAmong, setSplitAmong] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (me && !payer) setPayer(me);
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // default: everyone currently in the pot is included in the split
+    setSplitAmong(new Set(participants.map((p) => p.toLowerCase())));
+  }, [participants.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function toggleSplit(p: string) {
+    setSplitAmong((prev) => {
+      const next = new Set(prev);
+      const key = p.toLowerCase();
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const {
+    writeContract: writeExpense,
+    data: expenseHash,
+    isPending: expensePending,
+    error: expenseError,
+    reset: resetExpense,
+  } = useWriteContract();
   const { data: expenseReceipt, isLoading: expenseConfirming } = useWaitForTransactionReceipt({ hash: expenseHash });
   const [expenseToastId, setExpenseToastId] = useState<number | null>(null);
 
@@ -61,15 +163,24 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
     if (!expenseReceipt) return;
     if (expenseToastId) update(expenseToastId, "success", "Expense added", expenseReceipt.transactionHash);
     setAmount("");
-    setDescription("");
-    refetchBalances();
+    setExpenseDesc("");
+    refetchAll();
     resetExpense();
   }, [expenseReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleAddExpense() {
     const parsed = Number(amount);
-    if (!parsed || parsed <= 0 || !description.trim()) {
+    const splitList = participants.filter((p) => splitAmong.has(p.toLowerCase()));
+    if (!parsed || parsed <= 0 || !expenseDesc.trim()) {
       push("error", "Enter an amount and description");
+      return;
+    }
+    if (!payer) {
+      push("error", "Pick who paid");
+      return;
+    }
+    if (splitList.length === 0) {
+      push("error", "Select at least one participant to split among");
       return;
     }
     const id = push("pending", "Confirm in wallet...");
@@ -79,18 +190,27 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
         address,
         abi: AGREEMENT_ABI,
         functionName: "addExpense",
-        args: [parseEther(amount), description.trim()],
+        args: [parseEther(amount), expenseDesc.trim(), payer as `0x${string}`, splitList],
       },
       { onSuccess: () => update(id, "pending", "Recording expense...") }
     );
   }
 
-  // --- Settle ---
-  const [settleTo, setSettleTo] = useState("");
+  // --- Settle all ---
   const [settleAmount, setSettleAmount] = useState("");
-  const { writeContract: writeSettle, data: settleHash, isPending: settlePending, error: settleError, reset: resetSettle } = useWriteContract();
+  const {
+    writeContract: writeSettle,
+    data: settleHash,
+    isPending: settlePending,
+    error: settleError,
+    reset: resetSettle,
+  } = useWriteContract();
   const { data: settleReceipt, isLoading: settleConfirming } = useWaitForTransactionReceipt({ hash: settleHash });
   const [settleToastId, setSettleToastId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (myBalance < 0n) setSettleAmount(formatMon(-myBalance, 6));
+  }, [myBalance]);
 
   useEffect(() => {
     if (!settleError) return;
@@ -102,27 +222,21 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
     if (!settleReceipt) return;
     if (settleToastId) update(settleToastId, "success", "Settled up!", settleReceipt.transactionHash);
     setSettleAmount("");
-    refetchBalances();
+    refetchAll();
     resetSettle();
   }, [settleReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleSettle() {
+  function handleSettleAll() {
     const parsed = Number(settleAmount);
-    if (!settleTo || !parsed || parsed <= 0) {
-      push("error", "Pick a recipient and amount");
+    if (!parsed || parsed <= 0) {
+      push("error", "Enter an amount to settle");
       return;
     }
     const id = push("pending", "Confirm in wallet...");
     setSettleToastId(id);
     writeSettle(
-      {
-        address,
-        abi: AGREEMENT_ABI,
-        functionName: "settle",
-        args: [settleTo as `0x${string}`],
-        value: parseEther(settleAmount),
-      },
-      { onSuccess: () => update(id, "pending", "Sending payment...") }
+      { address, abi: AGREEMENT_ABI, functionName: "settleAll", args: [], value: parseEther(settleAmount) },
+      { onSuccess: () => update(id, "pending", "Distributing payment...") }
     );
   }
 
@@ -139,9 +253,10 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="mb-1 flex items-center gap-2 text-xs font-medium text-[var(--color-accent)]">
-              <Users className="h-3.5 w-3.5" /> Group Splitter
+              <Users className="h-3.5 w-3.5" /> Group Pot
             </div>
-            <h2 className="text-xl font-semibold text-zinc-50 sm:text-2xl">{title}</h2>
+            <h2 className="text-xl font-semibold text-white sm:text-2xl">{title}</h2>
+            {description && <p className="mt-1 text-sm text-zinc-400">{description}</p>}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={copyAddress} className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200">
@@ -154,8 +269,39 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-500">
-          <span>{list.length} participants</span>
+          <span>{participants.length} participants</span>
           <span>{timeUntil(deadline)}</span>
+        </div>
+      </div>
+
+      {/* Participants */}
+      <div className="card p-5 sm:p-6">
+        <p className="mb-3 flex items-center gap-2 text-sm font-medium text-zinc-300">
+          <UserPlus className="h-4 w-4 text-[var(--color-accent)]" /> Participants
+        </p>
+        <div className="mb-3 flex flex-wrap gap-2">
+          {participants.map((p) => (
+            <span key={p} className="rounded-full bg-[var(--color-surface-2)] px-3 py-1 font-mono-num text-xs text-zinc-300">
+              {shortAddress(p)} {p.toLowerCase() === me?.toLowerCase() && <span className="text-zinc-600">(you)</span>}
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={newParticipant}
+            onChange={(e) => setNewParticipant(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAddParticipant()}
+            placeholder="0x... wallet address to invite"
+            className="input font-mono-num text-xs"
+          />
+          <button
+            onClick={handleAddParticipant}
+            disabled={addParticipantPending || addParticipantConfirming}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[var(--color-surface-2)] px-4 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {addParticipantPending || addParticipantConfirming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+            Add
+          </button>
         </div>
       </div>
 
@@ -169,25 +315,40 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
         <p className="mt-1 text-xs text-zinc-500">{myBalance >= 0n ? "You're owed this much overall" : "You owe this much overall"}</p>
       </div>
 
-      {/* Balances grid */}
-      <div className="card p-5 sm:p-6">
+      {/* Live balances table */}
+      <div className="card overflow-hidden p-5 sm:p-6">
         <p className="mb-3 text-sm font-medium text-zinc-300">Balances</p>
-        <div className="space-y-2">
-          {list.map((p) => {
-            const b = balances.get(p.toLowerCase()) ?? 0n;
-            const isMe = p.toLowerCase() === me?.toLowerCase();
-            return (
-              <div key={p} className="flex items-center justify-between rounded-lg bg-[var(--color-surface-2)] px-3.5 py-2.5">
-                <span className="font-mono-num text-sm text-zinc-300">
-                  {shortAddress(p)} {isMe && <span className="text-zinc-600">(you)</span>}
-                </span>
-                <span className={`font-mono-num text-sm font-medium ${b > 0n ? "text-[var(--color-accent)]" : b < 0n ? "text-[var(--color-danger)]" : "text-zinc-500"}`}>
-                  {b > 0n ? "+" : b < 0n ? "-" : ""}
-                  {formatMon(b < 0n ? -b : b)} MON
-                </span>
-              </div>
-            );
-          })}
+        <div className="scrollbar-thin overflow-x-auto">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead>
+              <tr className="border-b border-[var(--color-border)] text-left text-xs text-zinc-500">
+                <th className="pb-2 font-medium">Address</th>
+                <th className="pb-2 font-medium">Paid</th>
+                <th className="pb-2 font-medium">Owed</th>
+                <th className="pb-2 font-medium">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {participants.map((p) => {
+                const key = p.toLowerCase();
+                const net = balances.get(key) ?? 0n;
+                const isMe = key === me?.toLowerCase();
+                return (
+                  <tr key={p} className="border-b border-[var(--color-border)]/50 last:border-0">
+                    <td className="py-2.5 font-mono-num text-zinc-300">
+                      {shortAddress(p)} {isMe && <span className="text-zinc-600">(you)</span>}
+                    </td>
+                    <td className="py-2.5 font-mono-num text-zinc-400">{formatMon(paidMap.get(key) ?? 0n)} MON</td>
+                    <td className="py-2.5 font-mono-num text-zinc-400">{formatMon(owedMap.get(key) ?? 0n)} MON</td>
+                    <td className={`py-2.5 font-mono-num font-medium ${net > 0n ? "text-[var(--color-accent)]" : net < 0n ? "text-[var(--color-danger)]" : "text-zinc-500"}`}>
+                      {net > 0n ? "+" : net < 0n ? "-" : ""}
+                      {formatMon(net < 0n ? -net : net)} MON
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -199,19 +360,51 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
           </p>
           <div className="space-y-3">
             <input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="Amount (MON)" className="input" />
-            <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What was it for?" maxLength={100} className="input" />
+            <input value={expenseDesc} onChange={(e) => setExpenseDesc(e.target.value)} placeholder="What was it for?" maxLength={100} className="input" />
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-zinc-500">Who paid</span>
+              <select value={payer} onChange={(e) => setPayer(e.target.value)} className="input">
+                {participants.map((p) => (
+                  <option key={p} value={p}>
+                    {shortAddress(p)} {p.toLowerCase() === me?.toLowerCase() ? "(you)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div>
+              <span className="mb-1.5 block text-xs font-medium text-zinc-500">Split among</span>
+              <div className="flex flex-wrap gap-2">
+                {participants.map((p) => {
+                  const checked = splitAmong.has(p.toLowerCase());
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => toggleSplit(p)}
+                      className={`rounded-full border px-3 py-1.5 font-mono-num text-xs transition ${
+                        checked
+                          ? "border-[var(--color-accent)]/50 bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                          : "border-[var(--color-border)] text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      {shortAddress(p)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <button
               onClick={handleAddExpense}
               disabled={expensePending || expenseConfirming}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-[var(--color-accent-dim)] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--color-accent-dim)] disabled:opacity-50"
             >
               {expensePending || expenseConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Split equally among {list.length}
+              Add expense
             </button>
           </div>
         </div>
 
-        {/* Settle up */}
+        {/* Settle all */}
         <div className="card p-5 sm:p-6">
           <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
             <HandCoins className="h-4 w-4 text-[var(--color-warn)]" /> Settle up
@@ -220,29 +413,24 @@ export function GroupDashboard({ address, title, deadline }: { address: `0x${str
             <p className="text-sm text-zinc-500">You don't owe anything right now.</p>
           ) : (
             <div className="space-y-3">
-              <select value={settleTo} onChange={(e) => setSettleTo(e.target.value)} className="input">
-                <option value="">Pay who?</option>
-                {owedByOthers.map((p) => (
-                  <option key={p} value={p}>
-                    {shortAddress(p)} — owed {formatMon(balances.get(p.toLowerCase()))} MON
-                  </option>
-                ))}
-              </select>
+              <p className="text-sm text-zinc-500">
+                Send a payment and it's automatically split across everyone you owe, proportional to what each is owed.
+              </p>
               <input value={settleAmount} onChange={(e) => setSettleAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="Amount (MON)" className="input" />
               <button
-                onClick={handleSettle}
+                onClick={handleSettleAll}
                 disabled={settlePending || settleConfirming}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-zinc-950 transition hover:brightness-95 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-warn)] py-2.5 text-sm font-semibold text-[#0e091c] transition hover:brightness-95 disabled:opacity-50"
               >
                 {settlePending || settleConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <HandCoins className="h-4 w-4" />}
-                Send payment
+                Settle All
               </button>
             </div>
           )}
         </div>
       </div>
 
-      <HistoryLog address={address} />
+      <HistoryLog address={address} expenses={expenses} />
     </div>
   );
 }

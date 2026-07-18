@@ -15,6 +15,7 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
     contracts: [
       { address, abi: AGREEMENT_ABI, functionName: "agreementType" },
       { address, abi: AGREEMENT_ABI, functionName: "title" },
+      { address, abi: AGREEMENT_ABI, functionName: "description" },
       { address, abi: AGREEMENT_ABI, functionName: "deadline" },
       { address, abi: AGREEMENT_ABI, functionName: "initialized" },
     ],
@@ -22,8 +23,9 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
 
   const agreementType = data?.[0]?.result as AgreementType | undefined;
   const title = data?.[1]?.result as string | undefined;
-  const deadline = data?.[2]?.result as bigint | undefined;
-  const initialized = data?.[3]?.result as boolean | undefined;
+  const description = data?.[2]?.result as string | undefined;
+  const deadline = data?.[3]?.result as bigint | undefined;
+  const initialized = data?.[4]?.result as boolean | undefined;
 
   useEffect(() => {
     if (title && agreementType !== undefined) {
@@ -51,9 +53,9 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
         </div>
       )}
 
-      {!isLoading && initialized && title && deadline !== undefined && agreementType !== undefined && (
+      {!isLoading && initialized && title && description && deadline !== undefined && agreementType !== undefined && (
         agreementType === AgreementType.Group ? (
-          <GroupDashboard address={address} title={title} deadline={deadline} />
+          <GroupDashboard address={address} title={title} description={description} deadline={deadline} />
         ) : (
           <EscrowDashboard address={address} title={title} deadline={deadline} />
         )
