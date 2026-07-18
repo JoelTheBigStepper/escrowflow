@@ -4,6 +4,12 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "expenseId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "payer",
         "type": "address"
@@ -19,6 +25,12 @@
         "internalType": "string",
         "name": "description",
         "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "address[]",
+        "name": "splitAmong",
+        "type": "address[]"
       },
       {
         "indexed": false,
@@ -44,12 +56,6 @@
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "description",
-        "type": "string"
       }
     ],
     "name": "FundsLocked",
@@ -86,19 +92,32 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "from",
+        "name": "participant",
         "type": "address"
-      },
+      }
+    ],
+    "name": "ParticipantAdded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "to",
+        "name": "from",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "amount",
+        "name": "amountDistributed",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "refunded",
         "type": "uint256"
       }
     ],
@@ -114,11 +133,34 @@
       },
       {
         "internalType": "string",
-        "name": "description",
+        "name": "desc",
         "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "payerAddr",
+        "type": "address"
+      },
+      {
+        "internalType": "address[]",
+        "name": "splitAmong",
+        "type": "address[]"
       }
     ],
     "name": "addExpense",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "who",
+        "type": "address"
+      }
+    ],
+    "name": "addParticipant",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -203,7 +245,7 @@
   },
   {
     "inputs": [],
-    "name": "escrowDescription",
+    "name": "description",
     "outputs": [
       {
         "internalType": "string",
@@ -215,34 +257,13 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "expenses",
+    "inputs": [],
+    "name": "escrowStatus",
     "outputs": [
       {
-        "internalType": "address",
-        "name": "payer",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "string",
-        "name": "description",
-        "type": "string"
-      },
-      {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
+        "internalType": "enum Agreement.EscrowStatus",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -287,6 +308,11 @@
             "internalType": "string",
             "name": "description",
             "type": "string"
+          },
+          {
+            "internalType": "address[]",
+            "name": "splitAmong",
+            "type": "address[]"
           },
           {
             "internalType": "uint256",
@@ -341,6 +367,11 @@
         "type": "string"
       },
       {
+        "internalType": "string",
+        "name": "_description",
+        "type": "string"
+      },
+      {
         "internalType": "address",
         "name": "_creator",
         "type": "address"
@@ -357,13 +388,18 @@
       },
       {
         "internalType": "address",
-        "name": "_provider",
+        "name": "_recipient",
         "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_targetAmount",
+        "type": "uint256"
       }
     ],
     "name": "initialize",
     "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -412,13 +448,7 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "description",
-        "type": "string"
-      }
-    ],
+    "inputs": [],
     "name": "lockFunds",
     "outputs": [],
     "stateMutability": "payable",
@@ -471,7 +501,7 @@
   },
   {
     "inputs": [],
-    "name": "provider",
+    "name": "recipient",
     "outputs": [
       {
         "internalType": "address",
@@ -503,16 +533,23 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      }
-    ],
-    "name": "settle",
+    "inputs": [],
+    "name": "settleAll",
     "outputs": [],
     "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "targetAmount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
