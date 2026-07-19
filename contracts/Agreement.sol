@@ -319,6 +319,22 @@ contract Agreement {
         return EscrowStatus.AwaitingDeposit;
     }
 
+    // Simple refund for overpayment in group mode
+    function withdrawExcess() external onlyGroup onlyParticipant {
+        require(balances[msg.sender] > 0, "No excess to withdraw");
+        uint256 amount = uint256(balances[msg.sender]);
+        balances[msg.sender] = 0;
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "Transfer failed");
+    }
+
+    // Remove participant (basic version - only if no outstanding balance)
+    function removeParticipant(address who) external onlyGroup onlyParticipant {
+        require(who != msg.sender, "Cannot remove yourself");
+        require(balances[who] == 0, "Participant has outstanding balance");
+        // Remove from array + mapping logic...
+    }
+
     // ---------------------------------------------------------------------
     receive() external payable {
         revert("Use lockFunds()");

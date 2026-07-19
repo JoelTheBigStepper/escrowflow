@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAccount, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { formatEther, parseEther } from "viem";
 import { Lock, Unlock, Copy, Check, ExternalLink, Loader2, ShieldCheck, Clock } from "lucide-react";
+import confetti from "canvas-confetti";
 import { AGREEMENT_ABI, EscrowStatus } from "@/lib/contracts";
 import { explorerAddressUrl, formatMon, shortAddress, timeUntil, formatDeadline } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
@@ -47,11 +48,19 @@ export function EscrowDashboard({
   const isRecipient = me && recipient && me.toLowerCase() === recipient.toLowerCase();
   const isClaimable = status === EscrowStatus.Expired && (lockedAmount ?? 0n) > 0n;
 
+  function triggerConfetti() {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+    });
+  }
+
   // --- Deposit funds ---
   const [lockAmount, setLockAmount] = useState("");
   useEffect(() => {
     if (targetAmount && targetAmount > 0n && !lockAmount) setLockAmount(formatEther(targetAmount));
-  }, [targetAmount]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [targetAmount]);
 
   const { writeContract: writeLock, data: lockHash, isPending: lockPending, error: lockError, reset: resetLock } = useWriteContract();
   const { data: lockReceipt, isLoading: lockConfirming } = useWaitForTransactionReceipt({ hash: lockHash });
@@ -61,7 +70,7 @@ export function EscrowDashboard({
     if (!lockError) return;
     const msg = lockError.message.includes("User rejected") ? "Transaction rejected" : "Failed to deposit funds";
     if (lockToastId) update(lockToastId, "error", msg);
-  }, [lockError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lockError]);
 
   useEffect(() => {
     if (!lockReceipt) return;
@@ -69,7 +78,7 @@ export function EscrowDashboard({
     setLockAmount("");
     refetch();
     resetLock();
-  }, [lockReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [lockReceipt]);
 
   function handleLock() {
     const parsed = Number(lockAmount);
@@ -85,7 +94,7 @@ export function EscrowDashboard({
     );
   }
 
-  // --- Release / Claim (share the same write hook, different function names) ---
+  // --- Release / Claim ---
   const { writeContract: writeAction, data: actionHash, isPending: actionPending, error: actionError, reset: resetAction } = useWriteContract();
   const { data: actionReceipt, isLoading: actionConfirming } = useWaitForTransactionReceipt({ hash: actionHash });
   const [actionToastId, setActionToastId] = useState<number | null>(null);
@@ -94,14 +103,17 @@ export function EscrowDashboard({
     if (!actionError) return;
     const msg = actionError.message.includes("User rejected") ? "Transaction rejected" : "Transaction failed";
     if (actionToastId) update(actionToastId, "error", msg);
-  }, [actionError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [actionError]);
 
   useEffect(() => {
     if (!actionReceipt) return;
-    if (actionToastId) update(actionToastId, "success", "Funds released to recipient", actionReceipt.transactionHash);
+    if (actionToastId) {
+      update(actionToastId, "success", "Funds released to recipient", actionReceipt.transactionHash);
+      triggerConfetti();
+    }
     refetch();
     resetAction();
-  }, [actionReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [actionReceipt]);
 
   function handleRelease() {
     const id = push("pending", "Confirm in wallet...");
@@ -125,7 +137,7 @@ export function EscrowDashboard({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* Header with prominent deadline */}
       <div className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -145,11 +157,20 @@ export function EscrowDashboard({
           </div>
         </div>
         {description && <p className="mt-2 text-sm text-zinc-400">{description}</p>}
+
+        {/* Prominent Deadline */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-[var(--color-accent)]" />
+            <span className="font-medium text-zinc-300">Deadline</span>
+          </div>
+          <div className="font-mono-num text-[var(--color-accent)]">{formatDeadline(deadline)}</div>
+          <div className="rounded-full bg-zinc-800 px-3 py-1 text-xs text-zinc-400">{timeUntil(deadline)}</div>
+        </div>
+
         <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-zinc-500 sm:grid-cols-4">
           <span>Payer: <span className="font-mono-num text-zinc-400">{shortAddress(payer)}</span> {isPayer && "(you)"}</span>
           <span>Recipient: <span className="font-mono-num text-zinc-400">{shortAddress(recipient)}</span> {isRecipient && "(you)"}</span>
-          <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {timeUntil(deadline)}</span>
-          <span>{formatDeadline(deadline)}</span>
         </div>
       </div>
 
@@ -168,7 +189,7 @@ export function EscrowDashboard({
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        {/* Deposit funds — payer only, before release */}
+        {/* Deposit funds — payer only */}
         {isPayer && !released && (
           <div className="card p-5 sm:p-6">
             <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">
@@ -206,7 +227,7 @@ export function EscrowDashboard({
           </div>
         )}
 
-        {/* Claim — recipient only, after deadline */}
+        {/* Claim — recipient only */}
         {isRecipient && !released && (
           <div className="card p-5 sm:p-6">
             <p className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-300">

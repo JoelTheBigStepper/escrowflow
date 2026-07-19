@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { parseEther } from "viem";
-import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2, UserPlus } from "lucide-react";
+import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2, UserPlus, Clock } from "lucide-react";
+import confetti from "canvas-confetti";
 import { AGREEMENT_ABI, Expense } from "@/lib/contracts";
-import { explorerAddressUrl, formatMon, isValidAddress, shortAddress, timeUntil } from "@/lib/utils";
+import { explorerAddressUrl, formatMon, isValidAddress, shortAddress, timeUntil, formatDeadline } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import { HistoryLog } from "@/components/HistoryLog";
 
@@ -78,6 +79,14 @@ export function GroupDashboard({
     refetchExpenses();
   }
 
+  function triggerConfetti() {
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+    });
+  }
+
   // --- Add participant ---
   const [newParticipant, setNewParticipant] = useState("");
   const {
@@ -94,7 +103,7 @@ export function GroupDashboard({
     if (!addParticipantError) return;
     const msg = addParticipantError.message.includes("User rejected") ? "Transaction rejected" : "Failed to add participant";
     if (addParticipantToastId) update(addParticipantToastId, "error", msg);
-  }, [addParticipantError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addParticipantError]);
 
   useEffect(() => {
     if (!addParticipantReceipt) return;
@@ -102,7 +111,7 @@ export function GroupDashboard({
     setNewParticipant("");
     refetchParticipants();
     resetAddParticipant();
-  }, [addParticipantReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addParticipantReceipt]);
 
   function handleAddParticipant() {
     const trimmed = newParticipant.trim();
@@ -126,12 +135,11 @@ export function GroupDashboard({
 
   useEffect(() => {
     if (me && !payer) setPayer(me);
-  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [me]);
 
   useEffect(() => {
-    // default: everyone currently in the pot is included in the split
     setSplitAmong(new Set(participants.map((p) => p.toLowerCase())));
-  }, [participants.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [participants.length]);
 
   function toggleSplit(p: string) {
     setSplitAmong((prev) => {
@@ -157,16 +165,19 @@ export function GroupDashboard({
     if (!expenseError) return;
     const msg = expenseError.message.includes("User rejected") ? "Transaction rejected" : "Failed to add expense";
     if (expenseToastId) update(expenseToastId, "error", msg);
-  }, [expenseError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [expenseError]);
 
   useEffect(() => {
     if (!expenseReceipt) return;
-    if (expenseToastId) update(expenseToastId, "success", "Expense added", expenseReceipt.transactionHash);
+    if (expenseToastId) {
+      update(expenseToastId, "success", "Expense added", expenseReceipt.transactionHash);
+      triggerConfetti();
+    }
     setAmount("");
     setExpenseDesc("");
     refetchAll();
     resetExpense();
-  }, [expenseReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [expenseReceipt]);
 
   function handleAddExpense() {
     const parsed = Number(amount);
@@ -216,15 +227,18 @@ export function GroupDashboard({
     if (!settleError) return;
     const msg = settleError.message.includes("User rejected") ? "Transaction rejected" : "Settlement failed";
     if (settleToastId) update(settleToastId, "error", msg);
-  }, [settleError]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settleError]);
 
   useEffect(() => {
     if (!settleReceipt) return;
-    if (settleToastId) update(settleToastId, "success", "Settled up!", settleReceipt.transactionHash);
+    if (settleToastId) {
+      update(settleToastId, "success", "Settled up!", settleReceipt.transactionHash);
+      triggerConfetti();
+    }
     setSettleAmount("");
     refetchAll();
     resetSettle();
-  }, [settleReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settleReceipt]);
 
   function handleSettleAll() {
     const parsed = Number(settleAmount);
@@ -248,7 +262,7 @@ export function GroupDashboard({
 
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* Header with prominent deadline */}
       <div className="card p-5 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -268,9 +282,19 @@ export function GroupDashboard({
             </a>
           </div>
         </div>
+
+        {/* Prominent Deadline */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-[var(--color-accent)]" />
+            <span className="font-medium text-zinc-300">Deadline</span>
+          </div>
+          <div className="font-mono-num text-[var(--color-accent)]">{formatDeadline(deadline)}</div>
+          <div className="rounded-full bg-zinc-800 px-3 py-1 text-xs text-zinc-400">{timeUntil(deadline)}</div>
+        </div>
+
         <div className="mt-3 flex flex-wrap gap-4 text-xs text-zinc-500">
           <span>{participants.length} participants</span>
-          <span>{timeUntil(deadline)}</span>
         </div>
       </div>
 
@@ -315,7 +339,7 @@ export function GroupDashboard({
         <p className="mt-1 text-xs text-zinc-500">{myBalance >= 0n ? "You're owed this much overall" : "You owe this much overall"}</p>
       </div>
 
-      {/* Live balances table */}
+      {/* Live balances table - Mobile responsive */}
       <div className="card overflow-hidden p-5 sm:p-6">
         <p className="mb-3 text-sm font-medium text-zinc-300">Balances</p>
         <div className="scrollbar-thin overflow-x-auto">

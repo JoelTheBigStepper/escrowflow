@@ -7,6 +7,7 @@ import { AGREEMENT_ABI, AgreementType } from "@/lib/contracts";
 import { GroupDashboard } from "@/components/GroupDashboard";
 import { EscrowDashboard } from "@/components/EscrowDashboard";
 import { useRecentAgreements } from "@/lib/useRecentAgreements";
+import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 
 export function AgreementView({ address, onBack }: { address: `0x${string}`; onBack: () => void }) {
   const { add } = useRecentAgreements();
@@ -53,7 +54,7 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
         </div>
       )}
 
-      {!isLoading && initialized && title !== undefined && description !== undefined && deadline !== undefined && agreementType !== undefined && (
+      {!isLoading && <LoadingSkeleton /> && initialized && title !== undefined && description !== undefined && deadline !== undefined && agreementType !== undefined && (
         agreementType === AgreementType.Group ? (
           <GroupDashboard address={address} title={title} description={description} deadline={deadline} />
         ) : (
