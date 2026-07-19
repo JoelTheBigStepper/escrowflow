@@ -1,4 +1,4 @@
-# PotLock
+# TrustSplit
 
 Onchain group expense splitting + freelance/service escrow, built for the Monad Spark Hackathon.
 
@@ -25,7 +25,7 @@ No backend, no database. All state lives onchain; the frontend just reads/writes
 ```
 contracts/
   Agreement.sol            single contract handling both Group and Escrow logic
-  PotLockFactory.sol    factory that deploys minimal-proxy clones + keeps a registry
+  TrustSplitFactory.sol    factory that deploys minimal-proxy clones + keeps a registry
 app/
   layout.tsx, page.tsx, providers.tsx, globals.css
 components/
@@ -36,7 +36,7 @@ lib/
   utils.ts, useRecentAgreements.ts
 scripts/
   compile.mjs   compiles the contracts with solc, syncs ABIs into lib/abis
-  deploy.mjs    deploys PotLockFactory to Monad Testnet
+  deploy.mjs    deploys TrustSplitFactory to Monad Testnet
 ```
 
 ## 1. Install dependencies
@@ -48,7 +48,7 @@ npm install
 ## 2. Deploy the contracts to Monad Testnet
 
 Contracts are already compiled once (ABIs live in `lib/abis/`), but you need to deploy
-`PotLockFactory` yourself and point the frontend at your instance.
+`TrustSplitFactory` yourself and point the frontend at your instance.
 
 **Get testnet MON** for your deployer wallet from a Monad faucet (search "Monad testnet faucet" —
 faucet operators rotate, so use whichever is currently live).
@@ -71,9 +71,9 @@ Never commit a private key. Use a throwaway hackathon wallet.
 ### Alternative: deploy via Remix
 
 If you'd rather not touch the CLI, paste `contracts/Agreement.sol` and
-`contracts/PotLockFactory.sol` into [Remix](https://remix.ethereum.org), compile with
+`contracts/TrustSplitFactory.sol` into [Remix](https://remix.ethereum.org), compile with
 Solidity 0.8.20+, connect MetaMask to Monad Testnet (chain ID `10143`, RPC
-`https://testnet-rpc.monad.xyz`), and deploy `PotLockFactory` (no constructor args — it
+`https://testnet-rpc.monad.xyz`), and deploy `TrustSplitFactory` (no constructor args — it
 deploys its own `Agreement` implementation internally). Copy the resulting address into
 `.env.local` as above.
 
@@ -109,7 +109,7 @@ history API faking a static host).
 
 ## How the contracts work
 
-- `PotLockFactory.createAgreement(type, title, deadlineDays, participants, provider)`
+- `TrustSplitFactory.createAgreement(type, title, deadlineDays, participants, provider)`
   deploys a minimal-proxy clone of `Agreement` (cheap: ~45k gas vs. a full deploy) and calls
   `initialize()` on it once.
 - **Group mode**: `addExpense(amount, description)` splits the amount equally across all

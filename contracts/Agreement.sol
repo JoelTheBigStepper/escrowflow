@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 /// @title Agreement
-/// @notice A single PotLock agreement, deployed fresh per agreement by
-///         PotLockFactory. Behaves either as a Group Pot (shared expenses
+/// @notice A single TrustSplit agreement, deployed fresh per agreement by
+///         TrustSplitFactory. Behaves either as a Group Pot (shared expenses
 ///         with a running ledger + batch settle) or a Service Escrow (funds
 ///         locked by a payer, released manually or claimable by the
 ///         recipient after a deadline).
