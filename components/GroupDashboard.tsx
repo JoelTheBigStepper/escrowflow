@@ -3,12 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { parseEther } from "viem";
-import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2, UserPlus, Clock } from "lucide-react";
+import { Plus, HandCoins, Users, Copy, Check, ExternalLink, Loader2, UserPlus, Clock, X, Wallet } from "lucide-react";
 import confetti from "canvas-confetti";
 import { AGREEMENT_ABI, Expense } from "@/lib/contracts";
 import { explorerAddressUrl, formatMon, isValidAddress, shortAddress, timeUntil, formatDeadline } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import { HistoryLog } from "@/components/HistoryLog";
+
+function triggerConfetti() {
+  confetti({
+    particleCount: 100,
+    spread: 70,
+    origin: { y: 0.6 },
+    colors: ["#6e54ff", "#ddd7fe", "#ffffff"],
+  });
+}
 
 export function GroupDashboard({
   address,
@@ -79,14 +88,6 @@ export function GroupDashboard({
     refetchExpenses();
   }
 
-  function triggerConfetti() {
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 },
-    });
-  }
-
   // --- Add participant ---
   const [newParticipant, setNewParticipant] = useState("");
   const {
@@ -103,7 +104,7 @@ export function GroupDashboard({
     if (!addParticipantError) return;
     const msg = addParticipantError.message.includes("User rejected") ? "Transaction rejected" : "Failed to add participant";
     if (addParticipantToastId) update(addParticipantToastId, "error", msg);
-  }, [addParticipantError]);
+  }, [addParticipantError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!addParticipantReceipt) return;
@@ -111,7 +112,7 @@ export function GroupDashboard({
     setNewParticipant("");
     refetchParticipants();
     resetAddParticipant();
-  }, [addParticipantReceipt]);
+  }, [addParticipantReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleAddParticipant() {
     const trimmed = newParticipant.trim();
@@ -127,6 +128,84 @@ export function GroupDashboard({
     );
   }
 
+  // --- Remove participant ---
+  const {
+    writeContract: writeRemoveParticipant,
+    data: removeParticipantHash,
+    isPending: removeParticipantPending,
+    error: removeParticipantError,
+    reset: resetRemoveParticipant,
+  } = useWriteContract();
+  const { data: removeParticipantReceipt, isLoading: removeParticipantConfirming } = useWaitForTransactionReceipt({ hash: removeParticipantHash });
+  const [removeParticipantToastId, setRemoveParticipantToastId] = useState<number | null>(null);
+  const [removingAddress, setRemovingAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!removeParticipantError) return;
+    const msg = removeParticipantError.message.includes("User rejected")
+      ? "Transaction rejected"
+      : removeParticipantError.message.includes("outstanding balance")
+      ? "They still have an outstanding balance — settle up first"
+      : "Failed to remove participant";
+    if (removeParticipantToastId) update(removeParticipantToastId, "error", msg);
+    setRemovingAddress(null);
+  }, [removeParticipantError]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!removeParticipantReceipt) return;
+    if (removeParticipantToastId) update(removeParticipantToastId, "success", "Participant removed", removeParticipantReceipt.transactionHash);
+    setRemovingAddress(null);
+    refetchAll();
+    resetRemoveParticipant();
+  }, [removeParticipantReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleRemoveParticipant(who: string) {
+    const id = push("pending", "Confirm in wallet...");
+    setRemoveParticipantToastId(id);
+    setRemovingAddress(who);
+    writeRemoveParticipant(
+      { address, abi: AGREEMENT_ABI, functionName: "removeParticipant", args: [who as `0x${string}`] },
+      { onSuccess: () => update(id, "pending", "Removing participant...") }
+    );
+  }
+
+  // --- Withdraw excess (funds actually held by the contract, e.g. an initial deposit) ---
+  const {
+    writeContract: writeWithdraw,
+    data: withdrawHash,
+    isPending: withdrawPending,
+    error: withdrawError,
+    reset: resetWithdraw,
+  } = useWriteContract();
+  const { data: withdrawReceipt, isLoading: withdrawConfirming } = useWaitForTransactionReceipt({ hash: withdrawHash });
+  const [withdrawToastId, setWithdrawToastId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!withdrawError) return;
+    const msg = withdrawError.message.includes("User rejected")
+      ? "Transaction rejected"
+      : withdrawError.message.includes("isn't holding")
+      ? "This pot isn't holding any MON to withdraw — settle up peer-to-peer instead"
+      : "Withdrawal failed";
+    if (withdrawToastId) update(withdrawToastId, "error", msg);
+  }, [withdrawError]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!withdrawReceipt) return;
+    if (withdrawToastId) update(withdrawToastId, "success", "Withdrawn", withdrawReceipt.transactionHash);
+    refetchAll();
+    resetWithdraw();
+  }, [withdrawReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleWithdrawExcess() {
+    const id = push("pending", "Confirm in wallet...");
+    setWithdrawToastId(id);
+    writeWithdraw(
+      { address, abi: AGREEMENT_ABI, functionName: "withdrawExcess", args: [] },
+      { onSuccess: () => update(id, "pending", "Withdrawing...") }
+    );
+  }
+
   // --- Add expense ---
   const [amount, setAmount] = useState("");
   const [expenseDesc, setExpenseDesc] = useState("");
@@ -135,11 +214,12 @@ export function GroupDashboard({
 
   useEffect(() => {
     if (me && !payer) setPayer(me);
-  }, [me]);
+  }, [me]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    // default: everyone currently in the pot is included in the split
     setSplitAmong(new Set(participants.map((p) => p.toLowerCase())));
-  }, [participants.length]);
+  }, [participants.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleSplit(p: string) {
     setSplitAmong((prev) => {
@@ -165,7 +245,7 @@ export function GroupDashboard({
     if (!expenseError) return;
     const msg = expenseError.message.includes("User rejected") ? "Transaction rejected" : "Failed to add expense";
     if (expenseToastId) update(expenseToastId, "error", msg);
-  }, [expenseError]);
+  }, [expenseError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!expenseReceipt) return;
@@ -177,7 +257,7 @@ export function GroupDashboard({
     setExpenseDesc("");
     refetchAll();
     resetExpense();
-  }, [expenseReceipt]);
+  }, [expenseReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleAddExpense() {
     const parsed = Number(amount);
@@ -227,7 +307,7 @@ export function GroupDashboard({
     if (!settleError) return;
     const msg = settleError.message.includes("User rejected") ? "Transaction rejected" : "Settlement failed";
     if (settleToastId) update(settleToastId, "error", msg);
-  }, [settleError]);
+  }, [settleError]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!settleReceipt) return;
@@ -238,7 +318,7 @@ export function GroupDashboard({
     setSettleAmount("");
     refetchAll();
     resetSettle();
-  }, [settleReceipt]);
+  }, [settleReceipt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSettleAll() {
     const parsed = Number(settleAmount);
@@ -283,7 +363,7 @@ export function GroupDashboard({
           </div>
         </div>
 
-        {/* Prominent Deadline */}
+        {/* Prominent deadline */}
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-[var(--color-surface-2)] p-4 text-sm">
           <div className="flex items-center gap-2">
             <Clock className="h-5 w-5 text-[var(--color-accent)]" />
@@ -304,11 +384,28 @@ export function GroupDashboard({
           <UserPlus className="h-4 w-4 text-[var(--color-accent)]" /> Participants
         </p>
         <div className="mb-3 flex flex-wrap gap-2">
-          {participants.map((p) => (
-            <span key={p} className="rounded-full bg-[var(--color-surface-2)] px-3 py-1 font-mono-num text-xs text-zinc-300">
-              {shortAddress(p)} {p.toLowerCase() === me?.toLowerCase() && <span className="text-zinc-600">(you)</span>}
-            </span>
-          ))}
+          {participants.map((p) => {
+            const isMe = p.toLowerCase() === me?.toLowerCase();
+            const isRemoving = removingAddress?.toLowerCase() === p.toLowerCase() && (removeParticipantPending || removeParticipantConfirming);
+            return (
+              <span
+                key={p}
+                className="flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] py-1 pl-3 pr-1.5 font-mono-num text-xs text-zinc-300"
+              >
+                {shortAddress(p)} {isMe && <span className="text-zinc-600">(you)</span>}
+                {!isMe && (
+                  <button
+                    onClick={() => handleRemoveParticipant(p)}
+                    disabled={isRemoving}
+                    title="Remove participant (only works if their balance is zero)"
+                    className="rounded-full p-0.5 text-zinc-500 transition hover:bg-[var(--color-danger)]/15 hover:text-[var(--color-danger)] disabled:opacity-50"
+                  >
+                    {isRemoving ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+                  </button>
+                )}
+              </span>
+            );
+          })}
         </div>
         <div className="flex gap-2">
           <input
@@ -337,9 +434,25 @@ export function GroupDashboard({
           {formatMon(myBalance < 0n ? -myBalance : myBalance)} MON
         </p>
         <p className="mt-1 text-xs text-zinc-500">{myBalance >= 0n ? "You're owed this much overall" : "You owe this much overall"}</p>
+        {myBalance > 0n && (
+          <button
+            onClick={handleWithdrawExcess}
+            disabled={withdrawPending || withdrawConfirming}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--color-accent-dim)] disabled:opacity-50"
+          >
+            {withdrawPending || withdrawConfirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wallet className="h-4 w-4" />}
+            Withdraw ({formatMon(myBalance)} MON)
+          </button>
+        )}
+        {myBalance > 0n && (
+          <p className="mt-1.5 text-center text-xs text-zinc-600">
+            Only works if this pot is actually holding MON (e.g. from an initial deposit) — everyday settle-ups go directly
+            peer-to-peer instead.
+          </p>
+        )}
       </div>
 
-      {/* Live balances table - Mobile responsive */}
+      {/* Live balances table */}
       <div className="card overflow-hidden p-5 sm:p-6">
         <p className="mb-3 text-sm font-medium text-zinc-300">Balances</p>
         <div className="scrollbar-thin overflow-x-auto">

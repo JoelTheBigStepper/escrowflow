@@ -68,6 +68,7 @@ contract Agreement {
     // ---------------------------------------------------------------------
 
     event ParticipantAdded(address indexed participant);
+    event ParticipantRemoved(address indexed participant);
     event ExpenseAdded(
         uint256 indexed expenseId,
         address indexed payer,
@@ -77,6 +78,7 @@ contract Agreement {
         uint256 timestamp
     );
     event Settled(address indexed from, uint256 amountDistributed, uint256 refunded);
+    event Withdrawn(address indexed who, uint256 amount);
     event FundsLocked(address indexed payer, uint256 amount);
     event FundsReleased(address indexed to, uint256 amount, bool autoReleased);
 
@@ -163,6 +165,47 @@ contract Agreement {
         isParticipant[who] = true;
         participants.push(who);
         emit ParticipantAdded(who);
+    }
+
+    /// @notice Remove a participant. Only allowed while their ledger balance
+    ///         is exactly zero, so removing them can never orphan a debt or
+    ///         credit. Cannot remove yourself (leave the pot by settling up
+    ///         first, then asking another participant to remove you).
+    function removeParticipant(address who) external onlyGroup onlyParticipant {
+        require(who != msg.sender, "Cannot remove yourself");
+        require(isParticipant[who], "Not a participant");
+        require(balances[who] == 0, "Participant has an outstanding balance, settle up first");
+
+        isParticipant[who] = false;
+        uint256 n = participants.length;
+        for (uint256 i = 0; i < n; i++) {
+            if (participants[i] == who) {
+                participants[i] = participants[n - 1];
+                participants.pop();
+                break;
+            }
+        }
+        emit ParticipantRemoved(who);
+    }
+
+    /// @notice Withdraw MON that's actually sitting in this contract (e.g.
+    ///         from an "Initial deposit" made at pot creation) against your
+    ///         positive ledger balance. Everyday settle-up payments go
+    ///         directly peer-to-peer via settleAll() and never touch the
+    ///         contract's own balance — this only covers the deposit case.
+    function withdrawExcess() external onlyGroup onlyParticipant {
+        require(balances[msg.sender] > 0, "No credit to withdraw");
+        uint256 held = address(this).balance;
+        require(held > 0, "This pot isn't holding any funds");
+
+        uint256 credit = uint256(balances[msg.sender]);
+        uint256 amount = credit > held ? held : credit;
+
+        balances[msg.sender] -= int256(amount);
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "Transfer failed");
+
+        emit Withdrawn(msg.sender, amount);
     }
 
     /// @notice Record an expense. `payerAddr` is who actually paid (defaults to
@@ -319,24 +362,8 @@ contract Agreement {
         return EscrowStatus.AwaitingDeposit;
     }
 
-    // Simple refund for overpayment in group mode
-    function withdrawExcess() external onlyGroup onlyParticipant {
-        require(balances[msg.sender] > 0, "No excess to withdraw");
-        uint256 amount = uint256(balances[msg.sender]);
-        balances[msg.sender] = 0;
-        (bool sent, ) = msg.sender.call{value: amount}("");
-        require(sent, "Transfer failed");
-    }
-
-    // Remove participant (basic version - only if no outstanding balance)
-    function removeParticipant(address who) external onlyGroup onlyParticipant {
-        require(who != msg.sender, "Cannot remove yourself");
-        require(balances[who] == 0, "Participant has outstanding balance");
-        // Remove from array + mapping logic...
-    }
-
     // ---------------------------------------------------------------------
     receive() external payable {
         revert("Use lockFunds()");
     }
-}
+}   
