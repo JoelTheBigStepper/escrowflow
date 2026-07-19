@@ -1,4 +1,4 @@
-// Deploys EscrowFlowFactory to Monad Testnet.
+// Deploys PotLockFactory to Monad Testnet.
 // Usage:
 //   1. node scripts/compile.mjs        (produces scripts/artifacts.json)
 //   2. PRIVATE_KEY=0xyourkey node scripts/deploy.mjs
@@ -57,7 +57,7 @@ async function main() {
   console.log("Waiting for confirmation...");
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  console.log(`\n✅ EscrowFlowFactory deployed at: ${receipt.contractAddress}`);
+  console.log(`\n✅ PotLockFactory deployed at: ${receipt.contractAddress}`);
   console.log(`   Explorer: https://testnet.monadexplorer.com/address/${receipt.contractAddress}`);
   console.log(`\nAdd this to your .env.local:`);
   console.log(`NEXT_PUBLIC_FACTORY_ADDRESS=${receipt.contractAddress}`);

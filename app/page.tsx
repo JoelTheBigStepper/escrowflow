@@ -20,7 +20,7 @@ export default function Home() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-accent)]/15">
               <Workflow className="h-4.5 w-4.5 text-[var(--color-accent)]" />
             </div>
-            <span className="text-base font-semibold tracking-tight text-zinc-50">EscrowFlow</span>
+            <span className="text-base font-semibold tracking-tight text-zinc-50">PotLock</span>
           </div>
           <ConnectButton />
         </div>

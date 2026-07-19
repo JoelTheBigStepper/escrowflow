@@ -3,10 +3,10 @@ pragma solidity ^0.8.20;
 
 import "./Agreement.sol";
 
-/// @title EscrowFlowFactory
+/// @title PotLockFactory
 /// @notice Deploys a fresh, independent Agreement contract per agreement,
 ///         and keeps a registry so the frontend can list a user's agreements.
-contract EscrowFlowFactory {
+contract PotLockFactory {
     address[] public allAgreements;
     mapping(address => address[]) private _userAgreements;
 

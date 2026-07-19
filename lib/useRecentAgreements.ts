@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const STORAGE_KEY = "escrowflow:recent";
+const STORAGE_KEY = "PotLock:recent";
 const MAX_RECENT = 12;
 
 export type RecentAgreement = {

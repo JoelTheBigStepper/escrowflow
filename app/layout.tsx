@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "sw
 const robotoMono = Roboto_Mono({ subsets: ["latin"], variable: "--font-roboto-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "EscrowFlow — Split expenses & escrow payments onchain",
+  title: "PotLock — Split expenses & escrow payments onchain",
   description:
     "Shared expense pots for friends and teams, plus time-locked escrow for freelance work — built on Monad.",
 };

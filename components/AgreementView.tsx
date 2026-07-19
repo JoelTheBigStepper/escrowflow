@@ -49,7 +49,7 @@ export function AgreementView({ address, onBack }: { address: `0x${string}`; onB
       {(isError || (!isLoading && !initialized)) && (
         <div className="card p-8 text-center">
           <p className="text-sm text-[var(--color-danger)]">
-            Couldn't load an EscrowFlow agreement at this address. Double-check it was created by the factory.
+            Couldn't load an PotLock agreement at this address. Double-check it was created by the factory.
           </p>
         </div>
       )}

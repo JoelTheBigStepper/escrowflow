@@ -21,7 +21,7 @@ const input = {
   language: "Solidity",
   sources: {
     "Agreement.sol": { content: fs.readFileSync(path.join(contractsDir, "Agreement.sol"), "utf8") },
-    "EscrowFlowFactory.sol": { content: fs.readFileSync(path.join(contractsDir, "EscrowFlowFactory.sol"), "utf8") },
+    "PotLockFactory.sol": { content: fs.readFileSync(path.join(contractsDir, "PotLockFactory.sol"), "utf8") },
   },
   settings: {
     outputSelection: { "*": { "*": ["abi", "evm.bytecode.object"] } },
@@ -41,7 +41,7 @@ if (output.errors) {
 }
 if (hasError) process.exit(1);
 
-const factory = output.contracts["EscrowFlowFactory.sol"]["EscrowFlowFactory"];
+const factory = output.contracts["PotLockFactory.sol"]["PotLockFactory"];
 const agreement = output.contracts["Agreement.sol"]["Agreement"];
 
 const artifacts = {
